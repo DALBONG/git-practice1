@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Mario Classic</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #5C94FC;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(to bottom, #5C94FC 0%, #5C94FC 80%, #00AA00 80%, #00AA00 100%);
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0px #000;
+            z-index: 100;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            font-size: 24px;
+            display: none;
+            z-index: 200;
+        }
+        
+        #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+        
+        #startScreen h1 {
+            font-size: 48px;
+            color: white;
+            margin-bottom: 20px;
+            text-shadow: 4px 4px 0px #000;
+            animation: bounce 2s infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-10px); }
+            60% { transform: translateY(-5px); }
+        }
+        
+        #startBtn {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #FF6B6B;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        
+        #startBtn:hover {
+            background: #FF5252;
+            transform: scale(1.1);
+        }
+        
+        .instructions {
+            margin-top: 30px;
+            text-align: center;
+            color: white;
+            line-height: 1.8;
+            font-size: 16px;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 16px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="1200" height="600"></canvas>
+        
+        <div id="startScreen">
+            <h1>🍄 SUPER MARIO 🍄</h1>
+            <button id="startBtn">GAME START</button>
+            <div class="instructions">
+                <p><strong>조작법:</strong></p>
+                <p>← → 방향키: 좌우 이동</p>
+                <p>스페이스바: 점프</p>
+                <p>굼바를 밟아서 처치하고 동전을 모으세요!</p>
+            </div>
+        </div>
+        
+        <div id="ui">
+            <div>MARIO: <span id="lives">3</span></div>
+            <div>SCORE: <span id="score">0</span></div>
+            <div>COINS: <span id="coins">0</span></div>
+            <div>TIME: <span id="time">400</span></div>
+        </div>
+        
+        <div id="gameOver">
+            <h2 id="gameOverTitle">GAME OVER!</h2>
+            <p>최종 점수: <span id="finalScore">0</span></p>
+            <button onclick="restartGame()">다시 시작</button>
+        </div>
+        
+        <div id="controls">
+            방향키로 이동, 스페이스바로 점프!
+        </div>
+    </div>
+
+    <script>
+        // 게임 변수들
+        let canvas, ctx, gameStarted = false, gameWon = false;
+        let mario, camera = { x: 0 };
+        let platforms = [], enemies = [], coins = [], pipes = [], powerUps = [];
+        let particles = [], clouds = [], hills = [];
+        let keys = {}, gameTime = 400;
+        let gameStats = { lives: 3, score: 0, coins: 0 };
+        let lastTime = 0, timeTimer = 0;
+        let levelWidth = 3200;
+        
+        // 게임 초기화
+        function initGame() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // 마리오 초기화
+            mario = {
+                x: 100,
+                y: 400,
+                width: 32,
+                height: 32,
+                velocityX: 0,
+                velocityY: 0,
+                onGround: false,
+                facingRight: true,
+                powered: false,
+                invulnerable: false,
+                animFrame: 0,
+                animTimer: 0
+            };
+            
+            createLevel();
+            setupEventListeners();
+        }
+        
+        // 레벨 생성
+        function createLevel() {
+            platforms = [];
+            enemies = [];
+            coins = [];
+            pipes = [];
+            powerUps = [];
+            particles = [];
+            clouds = [];
+            hills = [];
+            
+            // 지면 플랫폼
+            for (let i = 0; i < levelWidth / 40; i++) {
+                platforms.push({
+                    x: i * 40,
+                    y: 560,
+                    width: 40,
+                    height: 40,
+                    type: 'ground'
+                });
+            }
+            
+            // 벽돌 블록들
+            createBrickBlocks();
+            
+            // 파이프들
+            createPipes();
+            
+            // 플랫폼들
+            createPlatforms();
+            
+            // 굼바들
+            createGoombas();
+            
+            // 동전들
+            createCoins();
+            
+            // 파워업들
+            createPowerUps();
+            
+            // 배경 요소들
+            createBackground();
+            
+            // 깃발 (골인 지점)
+            createFlag();
+        }
+        
+        // 벽돌 블록 생성
+        function createBrickBlocks() {
+            const brickPositions = [
+                { x: 320, y: 400 }, { x: 360, y: 400 }, { x: 400, y: 400 },
+                { x: 680, y: 400 }, { x: 720, y: 400 },
+                { x: 1000, y: 400 }, { x: 1040, y: 400 }, { x: 1080, y: 400 },
+                { x: 1400, y: 350 }, { x: 1440, y: 350 },
+                { x: 1800, y: 300 }, { x: 1840, y: 300 }, { x: 1880, y: 300 }
+            ];
+            
+            brickPositions.forEach(pos => {
+                platforms.push({
+                    x: pos.x,
+                    y: pos.y,
+                    width: 40,
+                    height: 40,
+                    type: 'brick'
+                });
+            });
+        }
+        
+        // 파이프 생성
+        function createPipes() {
+            const pipeData = [
+                { x: 600, height: 80 },
+                { x: 900, height: 120 },
+                { x: 1300, height: 160 },
+                { x: 2000, height: 80 },
+                { x: 2800, height: 120 }
+            ];
+            
+            pipeData.forEach(pipe => {
+                pipes.push({
+                    x: pipe.x,
+                    y: 560 - pipe.height,
+                    width: 60,
+                    height: pipe.height
+                });
+            });
+        }
+        
+        // 플랫폼 생성
+        function createPlatforms() {
+            const platformData = [
+                { x: 800, y: 450, width: 120 },
+                { x: 1200, y: 400, width: 80 },
+                { x: 1600, y: 350, width: 160 },
+                { x: 2200, y: 400, width: 120 },
+                { x: 2600, y: 300, width: 200 }
+            ];
+            
+            platformData.forEach(plat => {
+                platforms.push({
+                    x: plat.x,
+                    y: plat.y,
+                    width: plat.width,
+                    height: 20,
+                    type: 'platform'
+                });
+            });
+        }
+        
+        // 굼바 생성
+        function createGoombas() {
+            const goombaPositions = [
+                450, 750, 1100, 1350, 1650, 2100, 2400, 2700, 3000
+            ];
+            
+            goombaPositions.forEach(x => {
+                enemies.push({
+                    x: x,
+                    y: 528,
+                    width: 32,
+                    height: 32,
+                    velocityX: -1,
+                    type: 'goomba',
+                    alive: true,
+                    animFrame: 0
+                });
+            });
+        }
+        
+        // 동전 생성
+        function createCoins() {
+            const coinPositions = [
+                { x: 360, y: 360 },
+                { x: 500, y: 480 },
+                { x: 720, y: 360 },
+                { x: 820, y: 410 },
+                { x: 860, y: 410 },
+                { x: 1040, y: 360 },
+                { x: 1220, y: 360 },
+                { x: 1420, y: 310 },
+                { x: 1620, y: 310 },
+                { x: 1660, y: 310 },
+                { x: 1700, y: 310 },
+                { x: 2220, y: 360 },
+                { x: 2620, y: 260 },
+                { x: 2660, y: 260 },
+                { x: 2700, y: 260 }
+            ];
+            
+            coinPositions.forEach(pos => {
+                coins.push({
+                    x: pos.x,
+                    y: pos.y,
+                    width: 20,
+                    height: 20,
+                    animFrame: 0,
+                    collected: false
+                });
+            });
+        }
+        
+        // 파워업 생성
+        function createPowerUps() {
+            const powerUpPositions = [
+                { x: 380, y: 360, type: 'mushroom' },
+                { x: 1060, y: 360, type: 'fireFlower' },
+                { x: 1640, y: 310, type: 'mushroom' },
+                { x: 2640, y: 260, type: 'fireFlower' }
+            ];
+            
+            powerUpPositions.forEach(pos => {
+                powerUps.push({
+                    x: pos.x,
+                    y: pos.y,
+                    width: 24,
+                    height: 24,
+                    type: pos.type,
+                    velocityX: 1,
+                    collected: false
+                });
+            });
+        }
+        
+        // 배경 요소 생성
+        function createBackground() {
+            // 구름들
+            for (let i = 0; i < 8; i++) {
+                clouds.push({
+                    x: i * 400 + Math.random() * 200,
+                    y: 100 + Math.random() * 150,
+                    size: 0.8 + Math.random() * 0.4
+                });
+            }
+            
+            // 언덕들
+            for (let i = 0; i < 6; i++) {
+                hills.push({
+                    x: i * 500 + Math.random() * 300,
+                    y: 450,
+                    width: 120 + Math.random() * 80,
+                    height: 80 + Math.random() * 40
+                });
+            }
+        }
+        
+        // 깃발 생성
+        function createFlag() {
+            platforms.push({
+                x: levelWidth - 200,
+                y: 400,
+                width: 20,
+                height: 160,
+                type: 'flag'
+            });
+        }
+        
+        // 이벤트 리스너
+        function setupEventListeners() {
+            document.addEventListener('keydown', (e) => {
+                keys[e.code] = true;
+                if (e.code === 'Space') e.preventDefault();
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                keys[e.code] = false;
+            });
+            
+            document.getElementById('startBtn').addEventListener('click', startGame);
+        }
+        
+        // 게임 시작
+        function startGame() {
+            gameStarted = true;
+            document.getElementById('startScreen').style.display = 'none';
+            document.getElementById('controls').style.display = 'none';
+            animate();
+            
+            // 타이머 시작
+            setInterval(() => {
+                if (gameStarted && !gameWon) {
+                    gameTime--;
+                    if (gameTime <= 0) {
+                        endGame();
+                    }
+                    updateUI();
+                }
+            }, 1000);
+        }
+        
+        // 마리오 업데이트
+        function updateMario() {
+            // 좌우 이동
+            if (keys['ArrowLeft']) {
+                mario.velocityX = -4;
+                mario.facingRight = false;
+            } else if (keys['ArrowRight']) {
+                mario.velocityX = 4;
+                mario.facingRight = true;
+            } else {
+                mario.velocityX *= 0.8;
+            }
+            
+            // 점프
+            if (keys['Space'] && mario.onGround) {
+                mario.velocityY = -15;
+                mario.onGround = false;
+            }
+            
+            // 중력
+            mario.velocityY += 0.8;
+            
+            // 위치 업데이트
+            mario.x += mario.velocityX;
+            mario.y += mario.velocityY;
+            
+            // 애니메이션
+            mario.animTimer++;
+            if (mario.animTimer > 8) {
+                mario.animFrame = (mario.animFrame + 1) % 3;
+                mario.animTimer = 0;
+            }
+            
+            // 충돌 감지
+            checkCollisions();
+            
+            // 화면 경계
+            if (mario.x < 0) mario.x = 0;
+            if (mario.y > 600) {
+                loseLife();
+            }
+            
+            // 카메라 따라가기
+            updateCamera();
+        }
+        
+        // 카메라 업데이트
+        function updateCamera() {
+            let targetX = mario.x - canvas.width / 2;
+            targetX = Math.max(0, Math.min(targetX, levelWidth - canvas.width));
+            camera.x = targetX;
+        }
+        
+        // 충돌 감지
+        function checkCollisions() {
+            mario.onGround = false;
+            
+            // 플랫폼과 충돌
+            platforms.forEach(platform => {
+                if (mario.x < platform.x + platform.width &&
+                    mario.x + mario.width > platform.x &&
+                    mario.y < platform.y + platform.height &&
+                    mario.y + mario.height > platform.y) {
+                    
+                    if (platform.type === 'flag') {
+                        winGame();
+                        return;
+                    }
+                    
+                    // 위에서 충돌
+                    if (mario.velocityY > 0 && mario.y < platform.y) {
+                        mario.y = platform.y - mario.height;
+                        mario.velocityY = 0;
+                        mario.onGround = true;
+                    }
+                    // 아래에서 충돌 (벽돌 블록 깨기)
+                    else if (mario.velocityY < 0 && mario.y > platform.y) {
+                        mario.y = platform.y + platform.height;
+                        mario.velocityY = 0;
+                        
+                        if (platform.type === 'brick') {
+                            breakBrick(platform);
+                        }
+                    }
+                    // 옆에서 충돌
+                    else {
+                        if (mario.x < platform.x) {
+                            mario.x = platform.x - mario.width;
+                        } else {
+                            mario.x = platform.x + platform.width;
+                        }
+                        mario.velocityX = 0;
+                    }
+                }
+            });
+            
+            // 파이프와 충돌
+            pipes.forEach(pipe => {
+                if (mario.x < pipe.x + pipe.width &&
+                    mario.x + mario.width > pipe.x &&
+                    mario.y < pipe.y + pipe.height &&
+                    mario.y + mario.height > pipe.y) {
+                    
+                    // 위에서 충돌
+                    if (mario.velocityY > 0 && mario.y < pipe.y + 10) {
+                        mario.y = pipe.y - mario.height;
+                        mario.velocityY = 0;
+                        mario.onGround = true;
+                    } else {
+                        // 옆에서 충돌
+                        if (mario.x < pipe.x) {
+                            mario.x = pipe.x - mario.width;
+                        } else {
+                            mario.x = pipe.x + pipe.width;
+                        }
+                        mario.velocityX = 0;
+                    }
+                }
+            });
+            
+            // 적과 충돌
+            enemies.forEach((enemy, index) => {
+                if (!enemy.alive) return;
+                
+                if (mario.x < enemy.x + enemy.width &&
+                    mario.x + mario.width > enemy.x &&
+                    mario.y < enemy.y + enemy.height &&
+                    mario.y + mario.height > enemy.y) {
+                    
+                    // 위에서 밟기
+                    if (mario.velocityY > 0 && mario.y < enemy.y - 10) {
+                        enemy.alive = false;
+                        mario.velocityY = -8;
+                        gameStats.score += 100;
+                        createParticles(enemy.x, enemy.y);
+                    } else if (!mario.invulnerable) {
+                        // 피격
+                        if (mario.powered) {
+                            mario.powered = false;
+                            mario.invulnerable = true;
+                            setTimeout(() => mario.invulnerable = false, 2000);
+                        } else {
+                            loseLife();
+                        }
+                    }
+                }
+            });
+            
+            // 동전과 충돌
+            coins.forEach(coin => {
+                if (!coin.collected &&
+                    mario.x < coin.x + coin.width &&
+                    mario.x + mario.width > coin.x &&
+                    mario.y < coin.y + coin.height &&
+                    mario.y + mario.height > coin.y) {
+                    
+                    coin.collected = true;
+                    gameStats.coins++;
+                    gameStats.score += 200;
+                    createParticles(coin.x, coin.y, 'gold');
+                }
+            });
+            
+            // 파워업과 충돌
+            powerUps.forEach(powerUp => {
+                if (!powerUp.collected &&
+                    mario.x < powerUp.x + powerUp.width &&
+                    mario.x + mario.width > powerUp.x &&
+                    mario.y < powerUp.y + powerUp.height &&
+                    mario.y + mario.height > powerUp.y) {
+                    
+                    powerUp.collected = true;
+                    mario.powered = true;
+                    gameStats.score += 1000;
+                    createParticles(powerUp.x, powerUp.y, 'rainbow');
+                }
+            });
+        }
+        
+        // 벽돌 깨기
+        function breakBrick(brick) {
+            const index = platforms.indexOf(brick);
+            if (index > -1) {
+                platforms.splice(index, 1);
+                createParticles(brick.x, brick.y, 'brick');
+                gameStats.score += 50;
+            }
+        }
+        
+        // 파티클 생성
+        function createParticles(x, y, type = 'normal') {
+            const colors = {
+                normal: ['#FF6B6B', '#4ECDC4', '#45B7D1'],
+                gold: ['#FFD700', '#FFA500', '#FF8C00'],
+                rainbow: ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF'],
+                brick: ['#8B4513', '#A0522D', '#CD853F']
+            };
+            
+            for (let i = 0; i < 8; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    velocityX: (Math.random() - 0.5) * 10,
+                    velocityY: -Math.random() * 8 - 2,
+                    color: colors[type][Math.floor(Math.random() * colors[type].length)],
+                    life: 60,
+                    maxLife: 60
+                });
+            }
+        }
+        
+        // 적 업데이트
+        function updateEnemies() {
+            enemies.forEach(enemy => {
+                if (!enemy.alive) return;
+                
+                enemy.x += enemy.velocityX;
+                
+                // 애니메이션
+                enemy.animFrame += 0.1;
+                
+                // 플랫폼 가장자리에서 방향 전환
+                let onPlatform = false;
+                platforms.forEach(platform => {
+                    if (enemy.x + enemy.width > platform.x &&
+                        enemy.x < platform.x + platform.width &&
+                        enemy.y + enemy.height >= platform.y &&
+                        enemy.y + enemy.height <= platform.y + 10) {
+                        onPlatform = true;
+                    }
+                });
+                
+                if (!onPlatform || enemy.x <= 0 || enemy.x >= levelWidth - enemy.width) {
+                    enemy.velocityX *= -1;
+                }
+            });
+        }
+        
+        // 파워업 업데이트
+        function updatePowerUps() {
+            powerUps.forEach(powerUp => {
+                if (powerUp.collected) return;
+                
+                powerUp.x += powerUp.velocityX;
+                
+                // 경계에서 방향 전환
+                if (powerUp.x <= 0 || powerUp.x >= levelWidth - powerUp.width) {
+                    powerUp.velocityX *= -1;
+                }
+            });
+        }
+        
+        // 파티클 업데이트
+        function updateParticles() {
+            particles.forEach((particle, index) => {
+                particle.x += particle.velocityX;
+                particle.y += particle.velocityY;
+                particle.velocityY += 0.3;
+                particle.life--;
+                
+                if (particle.life <= 0) {
+                    particles.splice(index, 1);
+                }
+            });
+        }
+        
+        // 목숨 잃기
+        function loseLife() {
+            gameStats.lives--;
+            if (gameStats.lives <= 0) {
+                endGame();
+            } else {
+                respawnMario();
+            }
+        }
+        
+        // 마리오 부활
+        function respawnMario() {
+            mario.x = 100;
+            mario.y = 400;
+            mario.velocityX = 0;
+            mario.velocityY = 0;
+            mario.powered = false;
+            mario.invulnerable = true;
+            setTimeout(() => mario.invulnerable = false, 3000);
+        }
+        
+        // 게임 승리
+        function winGame() {
+            gameWon = true;
+            gameStarted = false;
+            gameStats.score += gameTime * 50; // 시간 보너스
+            document.getElementById('gameOverTitle').textContent = 'CONGRATULATIONS!';
+            document.getElementById('finalScore').textContent = gameStats.score;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        // 게임 종료
+        function endGame() {
+            gameStarted = false;
+            document.getElementById('gameOverTitle').textContent = 'GAME OVER!';
+            document.getElementById('finalScore').textContent = gameStats.score;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        // UI 업데이트
+        function updateUI() {
+            document.getElementById('lives').textContent = gameStats.lives;
+            document.getElementById('score').textContent = gameStats.score;
+            document.getElementById('coins').textContent = gameStats.coins;
+            document.getElementById('time').textContent = gameTime;
+        }
+        
+        // 게임 재시작
+        function restartGame() {
+            gameStarted = false;
+            gameWon = false;
+            gameStats = { lives: 3, score: 0, coins: 0 };
+            gameTime = 400;
+            
+            mario.x = 100;
+            mario.y = 400;
+            mario.velocityX = 0;
+            mario.velocityY = 0;
+            mario.powered = false;
+            mario.invulnerable = false;
+            
+            camera.x = 0;
+            
+            createLevel();
+            
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('startScreen').style.display = 'flex';
+            document.getElementById('controls').style.display = 'block';
+            
+            updateUI();
+        }
+        
+        // 렌더링 함수들
+        function drawMario() {
+            ctx.save();
+            ctx.translate(mario.x - camera.x + mario.width/2, mario.y + mario.height/2);
+            
+            if (!mario.facingRight) {
+                ctx.scale(-1, 1);
+            }
+            
+            // 무적 상태일 때 깜빡이기
+            if (mario.invulnerable && Math.floor(Date.now() / 100) % 2) {
+                ctx.globalAlpha = 0.5;
+            }
+            
+            // 마리오 그리기
+            ctx.fillStyle = mario.powered ? '#FF6B6B' : '#FF0000';
+            ctx.fillRect(-mario.width/2, -mario.height/2, mario.width, mario.height);
+            
+            // 모자
+            ctx.fillStyle = '#8B0000';
+            ctx.fillRect(-mario.width/2, -mario.height/2, mario.width, mario.height/3);
+            
+            // 콧수염
+            ctx.fillStyle = '#000';
+            ctx.fillRect(-8, -2, 16, 4);
+            
+            ctx.restore();
+        }
+        
+        function drawPlatforms() {
+            platforms.forEach(platform => {
+                const x = platform.x - camera.x;
+                
+                if (platform.type === 'ground') {
+                    // 지면
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(x, platform.y, platform.width, platform.height);
+                    ctx.fillStyle = '#00AA00';
+                    ctx.fillRect(x, platform.y, platform.width, 8);
+                } else if (platform.type === 'brick') {
+                    // 벽돌
+                    ctx.fillStyle = '#CD853F';
+                    ctx.fillRect(x, platform.y, platform.width, platform.height);
+                    ctx.strokeStyle = '#8B4513';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, platform.y, platform.width, platform.height);
+                } else if (platform.type === 'platform') {
+                    // 플랫폼
+                    ctx.fillStyle = '#32CD32';
+                    ctx.fillRect(x, platform.y, platform.width, platform.height);
+                } else if (platform.type === 'flag') {
+                    // 깃발
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(x, platform.y, platform.width, platform.height);
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(x + platform.width, platform.y, 40, 30);
+                }
+            });
+        }
+        
+        function drawPipes() {
+            pipes.forEach(pipe => {
+                const x = pipe.x - camera.x;
+                
+                ctx.fillStyle = '#00AA00';
+                ctx.fillRect(x, pipe.y, pipe.width, pipe.height);
+                
+                // 파이프 입구
+                ctx.fillStyle = '#008800';
+                ctx.fillRect(x - 5, pipe.y - 10, pipe.width + 10, 20);
+                
+                ctx.strokeStyle = '#006600';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, pipe.y, pipe.width, pipe.height);
+            });
+        }
+        
+        function drawEnemies() {
+            enemies.forEach(enemy => {
+                if (!enemy.alive) return;
+                
+                const x = enemy.x - camera.x;
+                
+                if (enemy.type === 'goomba') {
+                    // 굼바 몸체
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(x, enemy.y, enemy.width, enemy.height);
+                    
+                    // 굼바 얼굴
+                    ctx.fillStyle = '#654321';
+                    ctx.fillRect(x + 4, enemy.y + 4, enemy.width - 8, enemy.height - 12);
+                    
+                    // 눈
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(x + 8, enemy.y + 8, 4, 4);
+                    ctx.fillRect(x + 20, enemy.y + 8, 4, 4);
+                    
+                    // 입
+                    ctx.fillRect(x + 12, enemy.y + 18, 8, 2);
+                    
+                    // 다리 애니메이션
+                    const legOffset = Math.sin(enemy.animFrame) * 2;
+                    ctx.fillRect(x + 6 + legOffset, enemy.y + 28, 6, 4);
+                    ctx.fillRect(x + 20 - legOffset, enemy.y + 28, 6, 4);
+                }
+            });
+        }
+        
+        function drawCoins() {
+            coins.forEach(coin => {
+                if (coin.collected) return;
+                
+                const x = coin.x - camera.x;
+                
+                coin.animFrame += 0.2;
+                const scale = 1 + Math.sin(coin.animFrame) * 0.2;
+                
+                ctx.save();
+                ctx.translate(x + coin.width/2, coin.y + coin.height/2);
+                ctx.scale(scale, scale);
+                
+                // 동전
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(0, 0, coin.width/2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.strokeStyle = '#FFA500';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // 동전 표시
+                ctx.fillStyle = '#FFA500';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(' ', 0, 4);
+                
+                ctx.restore();
+            });
+        }
+        
+        function drawPowerUps() {
+            powerUps.forEach(powerUp => {
+                if (powerUp.collected) return;
+                
+                const x = powerUp.x - camera.x;
+                
+                if (powerUp.type === 'mushroom') {
+                    // 버섯
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(x, powerUp.y, powerUp.width, powerUp.height/2);
+                    
+                    ctx.fillStyle = '#FFFF00';
+                    ctx.fillRect(x, powerUp.y + powerUp.height/2, powerUp.width, powerUp.height/2);
+                    
+                    // 버섯 점들
+                    ctx.fillStyle = '#FFF';
+                    ctx.beginPath();
+                    ctx.arc(x + 6, powerUp.y + 6, 2, 0, Math.PI * 2);
+                    ctx.arc(x + 18, powerUp.y + 6, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (powerUp.type === 'fireFlower') {
+                    // 파이어 플라워
+                    ctx.fillStyle = '#00AA00';
+                    ctx.fillRect(x + 8, powerUp.y + 12, 8, 12);
+                    
+                    const colors = ['#FF0000', '#FFA500', '#FFFF00'];
+                    colors.forEach((color, i) => {
+                        ctx.fillStyle = color;
+                        ctx.beginPath();
+                        ctx.arc(x + 12 + Math.cos(i * 2) * 6, powerUp.y + 8 + Math.sin(i * 2) * 6, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
+                }
+            });
+        }
+        
+        function drawParticles() {
+            particles.forEach(particle => {
+                const alpha = particle.life / particle.maxLife;
+                ctx.fillStyle = particle.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+                ctx.fillRect(particle.x - camera.x, particle.y, 4, 4);
+            });
+        }
+        
+        function drawBackground() {
+            // 하늘 그라디언트
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(0.7, '#5C94FC');
+            gradient.addColorStop(1, '#00AA00');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 구름
+            clouds.forEach(cloud => {
+                const x = cloud.x - camera.x * 0.5; // 패럴랙스 효과
+                
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.beginPath();
+                ctx.arc(x, cloud.y, 20 * cloud.size, 0, Math.PI * 2);
+                ctx.arc(x + 25 * cloud.size, cloud.y, 35 * cloud.size, 0, Math.PI * 2);
+                ctx.arc(x + 50 * cloud.size, cloud.y, 20 * cloud.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // 언덕
+            hills.forEach(hill => {
+                const x = hill.x - camera.x * 0.3; // 패럴랙스 효과
+                
+                ctx.fillStyle = '#32CD32';
+                ctx.beginPath();
+                ctx.ellipse(x + hill.width/2, hill.y, hill.width/2, hill.height/2, 0, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        // 메인 렌더링
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            drawBackground();
+            drawPlatforms();
+            drawPipes();
+            drawCoins();
+            drawPowerUps();
+            drawEnemies();
+            drawMario();
+            drawParticles();
+        }
+        
+        // 메인 게임 루프
+        function animate(currentTime = 0) {
+            if (!gameStarted) return;
+            
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+            
+            updateMario();
+            updateEnemies();
+            updatePowerUps();
+            updateParticles();
+            
+            render();
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // 게임 초기화 실행
+        initGame();
+        updateUI();
+    </script>
+</body>
+</html>
